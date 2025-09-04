@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter/services.dart'; // Para RawKeyboard
 
 class Movimiento {
   final int id;
@@ -65,17 +66,55 @@ class _MovimientoListScreenState extends State<MovimientoListScreen> {
   List<Movimiento> filteredMovimientos = [];
   TextEditingController searchController = TextEditingController();
 
+  // Variables para el lector de código de barras USB
+  String _barcodeBuffer = '';
+  DateTime _lastKeyTime = DateTime.now();
+
   @override
   void initState() {
     super.initState();
     futureMovimientos = _fetchMovimientos();
     searchController.addListener(_filterMovimientos);
+    
+    // Configurar listener para el lector de código de barras USB
+    RawKeyboard.instance.addListener(_handleKeyEvent);
   }
 
   @override
   void dispose() {
+    RawKeyboard.instance.removeListener(_handleKeyEvent);
     searchController.dispose();
     super.dispose();
+  }
+
+  // Manejar eventos de teclado para el lector USB
+  void _handleKeyEvent(RawKeyEvent event) {
+    if (event is RawKeyDownEvent) {
+      final key = event.logicalKey;
+      
+      // Verificar si es una tecla alfanumérica
+      if (_isCharacterKey(key)) {
+        final character = key.keyLabel;
+        _barcodeBuffer += character;
+        _lastKeyTime = DateTime.now();
+      } 
+      // Verificar si es la tecla Enter (final del código de barras)
+      else if (key == LogicalKeyboardKey.enter) {
+        if (_barcodeBuffer.isNotEmpty) {
+          _processScannedData(_barcodeBuffer);
+          _barcodeBuffer = '';
+        }
+      }
+    }
+  }
+
+  bool _isCharacterKey(LogicalKeyboardKey key) {
+    // Teclas alfanuméricas y algunos caracteres especiales comunes en códigos de barras
+    return (key.keyId >= 0x00000030 && key.keyId <= 0x0000005a) || // 0-9, A-Z
+           key == LogicalKeyboardKey.space ||
+           key == LogicalKeyboardKey.minus ||
+           key == LogicalKeyboardKey.underscore ||
+           key == LogicalKeyboardKey.period;
   }
 
   Future<List<Movimiento>> _fetchMovimientos() async {
@@ -155,36 +194,88 @@ class _MovimientoListScreenState extends State<MovimientoListScreen> {
     if (result != null) {
       // Procesar el resultado del escaneo
       final qrData = result as String;
-      final parts = qrData.split('\n');
+      _processScannedData(qrData);
+    }
+  }
 
+  // Procesar datos escaneados (tanto de QR como de código de barras)
+  void _processScannedData(String scannedData) {
+    // Intentar diferentes formatos de datos escaneados
+    String documentoPersona = '';
+    String serialEquipo = '';
+    
+    // Formato 1: Documento: valor\nEquipo: valor
+    if (scannedData.contains('Documento:') && scannedData.contains('Equipo:')) {
+      final lines = scannedData.split('\n');
+      for (var line in lines) {
+        if (line.startsWith('Documento:')) {
+          documentoPersona = line.replaceFirst('Documento:', '').trim();
+        } else if (line.startsWith('Equipo:')) {
+          serialEquipo = line.replaceFirst('Equipo:', '').trim();
+        }
+      }
+    } 
+    // Formato 2: Separado por comas (documento,serial)
+    else if (scannedData.contains(',')) {
+      final parts = scannedData.split(',');
       if (parts.length >= 2) {
-        final documentoPersona =
-            parts[0].replaceFirst('Documento: ', '').trim();
-        final serialEquipo = parts[1].replaceFirst('Equipo: ', '').trim();
-
-        // Navegar a la pantalla de creación con los datos del QR
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder:
-                (context) => AddEditMovimientoScreen(
-                  isEditing: false,
-                  initialData: {
-                    'documentoPersona': documentoPersona,
-                    'serialEquipo': serialEquipo,
-                    'centroFormacion': 'CESGE',
-                    'tipoIngreso': 'Permanente',
-                    'fechaIngreso': DateTime.now().toString(),
-                  },
-                ),
-          ),
-        ).then((_) => _refreshMovimientos());
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Formato de QR no válido')),
-        );
+        documentoPersona = parts[0].trim();
+        serialEquipo = parts[1].trim();
       }
     }
+    // Formato 3: Solo el documento (asumimos que el serial se escaneará después)
+    else {
+      documentoPersona = scannedData.trim();
+      // Mostrar diálogo para escanear el serial
+      _showScanSerialDialog(documentoPersona);
+      return;
+    }
+
+    // Navegar a la pantalla de creación con los datos escaneados
+    _navigateToAddScreen(documentoPersona, serialEquipo);
+  }
+
+  void _navigateToAddScreen(String documento, String serial) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddEditMovimientoScreen(
+          isEditing: false,
+          initialData: {
+            'documentoPersona': documento,
+            'serialEquipo': serial,
+            'centroFormacion': 'CESGE',
+            'tipoIngreso': 'Permanente',
+            'fechaIngreso': DateTime.now().toString(),
+          },
+        ),
+      ),
+    ).then((_) => _refreshMovimientos());
+  }
+
+  void _showScanSerialDialog(String documentoPersona) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Escaneo completado'),
+          content: Text('Documento: $documentoPersona\n\nPor favor, escanee el serial del equipo.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // El próximo escaneo se procesará automáticamente
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -395,6 +486,12 @@ class _AddEditMovimientoScreenState extends State<AddEditMovimientoScreen> {
   late TextEditingController _fechaIngresoController;
   late TextEditingController _fechaSalidaController;
 
+  // Variables para el lector de código de barras USB en el formulario
+  final FocusNode _barcodeInputFocusNode = FocusNode();
+  final TextEditingController _barcodeInputController = TextEditingController();
+  String _barcodeBuffer = '';
+  DateTime _lastKeyTime = DateTime.now();
+
   @override
   void initState() {
     super.initState();
@@ -434,10 +531,16 @@ class _AddEditMovimientoScreenState extends State<AddEditMovimientoScreen> {
     _fechaSalidaController = TextEditingController(
       text: initialData['fechaSalida'],
     );
+
+    // Configurar listener para el lector de código de barras USB en el formulario
+    RawKeyboard.instance.addListener(_handleKeyEvent);
   }
 
   @override
   void dispose() {
+    RawKeyboard.instance.removeListener(_handleKeyEvent);
+    _barcodeInputFocusNode.dispose();
+    _barcodeInputController.dispose();
     _documentoPersonaController.dispose();
     _serialEquipoController.dispose();
     _centroFormacionController.dispose();
@@ -446,6 +549,54 @@ class _AddEditMovimientoScreenState extends State<AddEditMovimientoScreen> {
     _fechaIngresoController.dispose();
     _fechaSalidaController.dispose();
     super.dispose();
+  }
+
+  // Manejar eventos de teclado para el lector USB en el formulario
+  void _handleKeyEvent(RawKeyEvent event) {
+    if (event is RawKeyDownEvent) {
+      final key = event.logicalKey;
+      
+      // Verificar si es una tecla alfanumérica
+      if (_isCharacterKey(key)) {
+        final character = key.keyLabel;
+        _barcodeBuffer += character;
+        _lastKeyTime = DateTime.now();
+      } 
+      // Verificar si es la tecla Enter (final del código de barras)
+      else if (key == LogicalKeyboardKey.enter) {
+        if (_barcodeBuffer.isNotEmpty) {
+          _processBarcodeInput(_barcodeBuffer);
+          _barcodeBuffer = '';
+        }
+      }
+    }
+  }
+
+  bool _isCharacterKey(LogicalKeyboardKey key) {
+    // Teclas alfanuméricas y algunos caracteres especiales comunes en códigos de barras
+    return (key.keyId >= 0x00000030 && key.keyId <= 0x0000005a) || // 0-9, A-Z
+           key == LogicalKeyboardKey.space ||
+           key == LogicalKeyboardKey.minus ||
+           key == LogicalKeyboardKey.underscore ||
+           key == LogicalKeyboardKey.period;
+  }
+
+  void _processBarcodeInput(String barcodeData) {
+    // Determinar qué campo debe recibir el dato basado en qué campo está vacío
+    if (_documentoPersonaController.text.isEmpty) {
+      _documentoPersonaController.text = barcodeData;
+    } else if (_serialEquipoController.text.isEmpty) {
+      _serialEquipoController.text = barcodeData;
+    }
+    // Si ambos campos están llenos, mostrar mensaje
+    else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ambos campos documento y serial ya están completos'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _submitForm() async {
@@ -540,10 +691,23 @@ class _AddEditMovimientoScreenState extends State<AddEditMovimientoScreen> {
           key: _formKey,
           child: ListView(
             children: [
+              // Campo oculto para capturar entrada del lector USB
+              SizedBox(
+                height: 0,
+                child: TextField(
+                  controller: _barcodeInputController,
+                  focusNode: _barcodeInputFocusNode,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+              
               TextFormField(
                 controller: _documentoPersonaController,
                 decoration: const InputDecoration(
                   labelText: 'Documento Persona',
+                  suffixIcon: Icon(Icons.barcode_reader, size: 20),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -555,7 +719,10 @@ class _AddEditMovimientoScreenState extends State<AddEditMovimientoScreen> {
               ),
               TextFormField(
                 controller: _serialEquipoController,
-                decoration: const InputDecoration(labelText: 'Serial Equipo'),
+                decoration: const InputDecoration(
+                  labelText: 'Serial Equipo',
+                  suffixIcon: Icon(Icons.barcode_reader, size: 20),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Por favor ingrese el serial del equipo';
@@ -660,9 +827,24 @@ class _AddEditMovimientoScreenState extends State<AddEditMovimientoScreen> {
           ),
         ),
       ),
+      // Botón para activar el modo de escaneo en el formulario
+      floatingActionButton: !widget.isEditing ? FloatingActionButton(
+        onPressed: () {
+          FocusScope.of(context).requestFocus(_barcodeInputFocusNode);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Modo escáner activado. Escanee un código de barras.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        },
+        child: const Icon(Icons.barcode_reader),
+      ) : null,
     );
   }
 }
+
+// ... (Las clases MovimientoDetailScreen y QRScannerScreen se mantienen igual)
 
 class MovimientoDetailScreen extends StatelessWidget {
   final Movimiento movimiento;

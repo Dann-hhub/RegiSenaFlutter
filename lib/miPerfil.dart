@@ -113,7 +113,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final nombre = widget.userData['nombre'] ?? 'Nombre no disponible';
-    final apellido = widget.userData['apellido'] ?? '';
+    final apellido = widget.userData['apellido'] ?? 'Apellido no disponible';
     final documento = widget.userData['documento'] ?? 'Documento no disponible';
     final tipoDocumento = widget.userData['tipoDocumento'] ?? 'CC';
     final correo = widget.userData['correo'] ?? 'Correo no disponible';
@@ -123,6 +123,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     final nombreCompleto = '$nombre $apellido'.trim();
     final documentoCompleto = '$tipoDocumento - $documento';
+    final correocompleto = '$correo'.trim();
     final rol = _getRolName(rolId);
 
     return Scaffold(
@@ -167,7 +168,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: [
                       _buildProfileItem('Nombre Completo', nombreCompleto),
                       _buildProfileItem('Documento', documentoCompleto),
-                      _buildProfileItem('Correo', correo),
+                      _buildProfileItem('Correo', correocompleto),
                       _buildProfileItem('Rol', rol),
                     ],
                   ),

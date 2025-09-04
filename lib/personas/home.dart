@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:barcode_widget/barcode_widget.dart';
 
 class Persona {
   final String documento;
@@ -176,7 +177,6 @@ class _PersonaListScreenState extends State<PersonaListScreen> {
     });
   }
 
-  // Nuevo método para mostrar el diálogo de QR
   void _showQrDialog(Persona persona) {
     showDialog(
       context: context,
@@ -210,6 +210,58 @@ class _PersonaListScreenState extends State<PersonaListScreen> {
                     version: QrVersions.auto,
                     size: 200.0,
                     backgroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text('Documento: ${persona.documento}'),
+                const SizedBox(height: 8),
+                Text('Equipo: ${persona.equipo}'),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cerrar'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showBarcodeDialog(Persona persona) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            constraints: BoxConstraints(
+              minWidth: 300,
+              maxWidth: MediaQuery.of(context).size.width * 0.8,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Código de Barras para ${persona.nombre}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                  ),
+                  child: BarcodeWidget(
+                    barcode: Barcode.code128(),
+                    data: 'Documento: ${persona.documento}\nEquipo: ${persona.equipo}',
+                    width: 200,
+                    height: 100,
+                    drawText: true,
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -299,6 +351,13 @@ class _PersonaListScreenState extends State<PersonaListScreen> {
                                   color: Colors.blue,
                                 ),
                                 onPressed: () => _showQrDialog(persona),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.barcode_reader,
+                                  color: Colors.blue,
+                                ),
+                                onPressed: () => _showBarcodeDialog(persona),
                               ),
                               IconButton(
                                 icon: Icon(
@@ -684,6 +743,40 @@ class PersonaDetailScreen extends StatelessWidget {
                               'Documento: ${persona.documento}\nEquipo: ${persona.equipo}',
                           version: QrVersions.auto,
                           size: 200.0,
+                        ),
+                        const SizedBox(height: 10),
+                        Text('Documento: ${persona.documento}'),
+                        Text('Equipo: ${persona.equipo}'),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cerrar'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.barcode_reader),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: Text('Código de Barras para ${persona.nombre}'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        BarcodeWidget(
+                          barcode: Barcode.code128(),
+                          data: 'Documento: ${persona.documento}\nEquipo: ${persona.equipo}',
+                          width: 200,
+                          height: 100,
+                          drawText: true,
                         ),
                         const SizedBox(height: 10),
                         Text('Documento: ${persona.documento}'),
